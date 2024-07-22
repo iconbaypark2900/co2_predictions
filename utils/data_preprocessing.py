@@ -1,26 +1,22 @@
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
-import numpy as np
-import os
+import joblib
 
-def preprocess_data(filepath, sequence_length):
-    # Load the data
-    data = pd.read_csv(filepath)
-
-    # Extracting the relevant columns (datetime and CO2 value)
-    data['datetime'] = pd.to_datetime(data['datetime'])
-    data = data.set_index('datetime')['value'].dropna()
-
-    # Normalizing the data
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    data_scaled = scaler.fit_transform(np.array(data).reshape(-1, 1))
+def preprocess_data(file_path, save_scaler_path=None):
+    data = pd.read_csv(file_path, index_col=0, parse_dates=True)
+    scaler = MinMaxScaler()
+    data_scaled = scaler.fit_transform(data[['value']])
     
+    if save_scaler_path:
+        joblib.dump(scaler, save_scaler_path)
+        
     return data_scaled, scaler
 
-def split_data(data_scaled, train_size=0.8):
-    split_idx = int(len(data_scaled) * train_size)
-    train_data = data_scaled[:split_idx]
-    val_data = data_scaled[split_idx:]
+def split_data(data, train_size=0.8):
+    train_size = int(len(data) * train_size)
+    train_data = data[:train_size]
+    val_data = data[train_size:]
     return train_data, val_data
 
-
+def inverse_transform(scaler, data_scaled):
+    return scaler.inverse_transform(data_scaled)

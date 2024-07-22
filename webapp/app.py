@@ -1,37 +1,83 @@
-import tensorflow as tf
+import joblib
+import pandas as pd
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from statsmodels.tsa.stattools import adfuller
 
-def create_lstm_model(input_shape, units=50, dropout=0.2):
+def load_model(model_path='models/sarima_model.pkl'):
     """
-    Create an LSTM model for time series prediction.
+    Load the SARIMA model from a file.
     Args:
-        input_shape (tuple): Shape of the input data (time_steps, n_features).
-        units (int): Number of units in the LSTM layers.
-        dropout (float): Dropout rate for regularization.
+        model_path (str): Path to the saved SARIMA model.
 
     Returns:
-        model (tf.keras.Model): Compiled LSTM model.
+        model (SARIMAXResults): Loaded SARIMA model.
     """
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.LSTM(units, return_sequences=True, input_shape=input_shape, dropout=dropout),
-        tf.keras.layers.LSTM(units, dropout=dropout),
-        tf.keras.layers.Dense(1)
-    ])
-    model.compile(optimizer='adam', loss='mean_squared_error')
+    model = joblib.load(model_path)
     return model
 
-def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_data=None):
+def load_historical_data(data_file_path='/home/gengar/data/aiml/co2_prediction/data/raw/co2_data.csv'):
     """
-    Train the LSTM model.
+    Load historical CO2 data.
     Args:
-        model (tf.keras.Model): LSTM model to be trained.
-        X_train (array): Training data features.
-        y_train (array): Training data labels.
-        epochs (int): Number of epochs for training.
-        batch_size (int): Batch size for training.
-        validation_data (tuple): Validation data (X_val, y_val).
+        data_file_path (str): Path to the CO2 data file.
 
     Returns:
-        history (History): History object containing training history.
+        data (pd.DataFrame): Historical CO2 data.
     """
-    history = model.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, validation_data=validation_data)
-    return history
+    data = pd.read_csv(data_file_path, parse_dates=['datetime'], index_col='datetime')
+    return data['value']
+
+def preprocess_data(data_file_path='/home/gengar/data/aiml/co2_prediction/data/raw/co2_data.csv'):
+    """
+    Preprocess the data for SARIMA model.
+    Args:
+        data_file_path (str): Path to the CO2 data file.
+
+    Returns:
+        data (pd.Series): Preprocessed CO2 data.
+    """
+    data = pd.read_csv(data_file_path, parse_dates=['datetime'], index_col='datetime')
+    data = data.dropna()
+    result = adfuller(data['value'])
+    if result[1] > 0.05:
+        data['value_diff'] = data['value'].diff().dropna()
+    else:
+        data['value_diff'] = data['value']
+    return data
+
+def build_and_train_model(data):
+    """
+    Build and train the SARIMA model.
+    Args:
+        data (pd.Series): Preprocessed CO2 data.
+
+    Returns:
+        model (SARIMAXResults): Trained SARIMA model.
+    """
+    model = SARIMAX(data['value_diff'].dropna(), order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
+    results = model.fit()
+    return results
+
+def predict(model, sequence, steps=600):
+    """
+    Predict future CO2 levels using the SARIMA model.
+    Args:
+        model (SARIMAXResults): Trained SARIMA model.
+        sequence (list): List of past CO2 levels.
+        steps (int): Number of steps to forecast.
+
+    Returns:
+        prediction (list): Predicted future CO2 levels.
+    """
+    sequence_series = pd.Series(sequence)
+    prediction = model.get_forecast(steps=steps)
+    return prediction.predicted_mean.tolist()
+
+# Example usage
+if __name__ == "__main__":
+    data_file_path = '/home/gengar/data/aiml/co2_prediction/data/raw/co2_data.csv'
+    data = preprocess_data(data_file_path)
+    model = build_and_train_model(data)
+    sequence = [330.91, 330.13, 330.35, 330.45, 332.69]  # Example sequence
+    prediction = predict(model, sequence)
+    print(f'Predicted CO2 Levels: {prediction}')
